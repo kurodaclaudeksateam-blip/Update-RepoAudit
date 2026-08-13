@@ -620,7 +620,7 @@
     <div class="slide-list">
       <div class="slide-item"><div class="slide-num">1</div>Portada — KPIs semestral clave</div>
       <div class="slide-item"><div class="slide-num">2</div>Resumen Ejecutivo — Evolución mensual de cumplimiento</div>
-      <div class="slide-item"><div class="slide-num">3</div>Mapa de Calor — Tienda × Mes</div>
+      <div class="slide-item"><div class="slide-num">3</div>Tendencia de Cumplimiento — Tienda × Proceso</div>
       <div class="slide-item"><div class="slide-num">4</div>Mapa de Calor — Tienda × Proceso</div>
       <div class="slide-item"><div class="slide-num">5</div>Ranking de Tiendas — Promedio semestral</div>
       <div class="slide-item"><div class="slide-num">6</div>Promedio Semestral por Proceso</div>
@@ -1141,8 +1141,8 @@ async function buildPptx(d) {
   pres.layout = 'LAYOUT_WIDE';
 
   const {months:mnths, monthLabels:mLbls, evolucion:evo, stores,
-         heatData, ranking, procAvg, globalAvg,
-         heatDataProc, procNames,
+         ranking, procAvg, globalAvg,
+         procMonthly, heatDataProc, procNames,
          bestMonthLabel, bestMonthVal, worstMonthLabel, worstMonthVal} = d;
 
   const storesShort = stores.map(s => s.length > 14 ? s.slice(0,13)+'.' : s);
@@ -1240,54 +1240,82 @@ async function buildPptx(d) {
     });
   }
 
-  // ─── SLIDE 3 — MAPA DE CALOR ─────────────────────────────
+  // ─── SLIDE 3 — TENDENCIA POR TIENDA Y PROCESO ────────────
   {
     const s = pres.addSlide();
     s.background = { color: C.off };
     s.addShape(pres.ShapeType.rect, { x:0, y:0, w:13.3, h:0.65, fill:{color:C.navy} });
     s.addShape(pres.ShapeType.rect, { x:0, y:0.65, w:13.3, h:0.05, fill:{color:C.gold} });
-    s.addText('MAPA DE CALOR — CUMPLIMIENTO POR TIENDA Y MES', {
+    s.addText('TENDENCIA DE CUMPLIMIENTO — TIENDA Y PROCESO', {
       x:0.3, y:0, w:12, h:0.65, fontSize:18, bold:true, color:C.white, fontFace:'Calibri', valign:'middle',
     });
 
-    const nMonths = mnths.length;
-    const nStores = stores.length;
-    const cellW = Math.min(1.35, (13.3 - 2.3) / nMonths);
-    const cellH = Math.min(0.44, (7.5 - 0.9 - 0.45) / (nStores + 1));
-    const startX = 2.2;
-    const startY = 0.9;
+    // Solo se grafican mejores/peores tiendas del semestre (mismo criterio que el
+    // podio de la diapositiva de Ranking) para que las 6 curvas por panel sigan
+    // siendo legibles sin importar cuántas tiendas tenga el período.
+    const chartNames = [];
+    top3.concat(bot3).forEach(r => { if (r && !chartNames.includes(r.name)) chartNames.push(r.name); });
+    const CHART_COLORS = ['008080','F0A500','C62828','5C7AEA','E65100','2E7D32'];
 
-    mLbls.forEach((m,j) => {
-      s.addShape(pres.ShapeType.rect, { x:startX+j*cellW, y:startY, w:cellW-0.04, h:0.36, fill:{color:C.navy} });
-      s.addText(m, { x:startX+j*cellW, y:startY, w:cellW-0.04, h:0.36, fontSize:11, bold:true, color:C.white, fontFace:'Calibri', align:'center', valign:'middle' });
-    });
-
-    stores.forEach((store,i) => {
-      const y = startY + 0.4 + i*cellH;
-      s.addShape(pres.ShapeType.rect, { x:0.08, y, w:2.05, h:cellH-0.04, fill:{color: i%2===0?'E8EDF5':C.white} });
-      s.addText(storesShort[i], { x:0.1, y, w:2.05, h:cellH-0.04, fontSize:9, color:C.navy, fontFace:'Calibri', bold:true, valign:'middle' });
-
-      heatData[store].forEach((val,j) => {
-        const fill = heatFill(val);
-        s.addShape(pres.ShapeType.rect, { x:startX+j*cellW, y, w:cellW-0.04, h:cellH-0.04, fill:{color:fill}, line:{color:C.white, width:1} });
-        s.addText(val!==null?`${val}%`:'—', {
-          x:startX+j*cellW, y, w:cellW-0.04, h:cellH-0.04,
-          fontSize:Math.min(11, cellH*18), bold:true,
-          color:val!==null?heatTextColor(val):'999999',
-          fontFace:'Calibri', align:'center', valign:'middle',
+    if (!chartNames.length || !mLbls.length) {
+      s.addText('Sin datos suficientes para graficar la tendencia.', {
+        x:0.3, y:3.4, w:12.7, h:0.5, fontSize:14, color:C.gray1, fontFace:'Calibri', align:'center',
+      });
+    } else {
+      // Leyenda compartida (misma para los 6 paneles, así no se repite 6 veces)
+      const legY = 0.82;
+      const legSlotW = 12.7 / chartNames.length;
+      chartNames.forEach((name,i) => {
+        const lx = 0.3 + i*legSlotW;
+        s.addShape(pres.ShapeType.rect, { x:lx, y:legY+0.06, w:0.26, h:0.07, fill:{color:CHART_COLORS[i]} });
+        s.addText(name.length>18?name.slice(0,17)+'.':name, {
+          x:lx+0.34, y:legY-0.02, w:legSlotW-0.36, h:0.24, fontSize:8.5, bold:true, color:C.navy, fontFace:'Calibri', valign:'middle',
         });
       });
-    });
 
-    const legend = [
-      {col:'A5D6A7', label:'≥ 80% Óptimo'}, {col:'FFF176', label:'60–79% Aceptable'},
-      {col:'FFCC80', label:'40–59% En Riesgo'}, {col:'EF9A9A', label:'< 40% Crítico'},
-    ];
-    s.addText('LEYENDA:', { x:0.2, y:7.05, w:1.0, h:0.28, fontSize:9, bold:true, color:C.navy, fontFace:'Calibri' });
-    legend.forEach((l,i) => {
-      s.addShape(pres.ShapeType.rect, { x:1.25+i*2.8, y:7.1, w:0.28, h:0.2, fill:{color:l.col} });
-      s.addText(l.label, { x:1.58+i*2.8, y:7.1, w:2.3, h:0.2, fontSize:9, color:C.gray1, fontFace:'Calibri', valign:'middle' });
-    });
+      // Cuadrícula 3×2: un panel por proceso, curva de cumplimiento mes a mes
+      const gridX = 0.3, gridY = 1.16, gridW = 12.7, gridH = 5.98;
+      const cols = 3, rows = 2, gapX = 0.22, gapY = 0.26;
+      const panelW = (gridW - (cols-1)*gapX) / cols;
+      const panelH = (gridH - (rows-1)*gapY) / rows;
+      const titleH = 0.28;
+
+      procNames.forEach((procName, idx) => {
+        const col = idx % cols, row = Math.floor(idx / cols);
+        const px = gridX + col*(panelW+gapX);
+        const py = gridY + row*(panelH+gapY);
+
+        s.addShape(pres.ShapeType.rect, { x:px, y:py, w:panelW, h:titleH, fill:{color:C.navy} });
+        s.addText(procName, { x:px+0.08, y:py, w:panelW-0.16, h:titleH, fontSize:9.5, bold:true, color:C.white, fontFace:'Calibri', valign:'middle' });
+
+        const byStore = procMonthly[procName];
+        const seriesData = chartNames.map((name,i) => ({
+          name: name.length>16?name.slice(0,15)+'.':name,
+          labels: mLbls,
+          values: byStore[name] ? byStore[name].slice() : mLbls.map(() => null),
+        }));
+
+        s.addChart(pres.ChartType.line, seriesData, {
+          x:px, y:py+titleH+0.02, w:panelW, h:panelH-titleH-0.02,
+          lineSize:1.5, lineSmooth:false, lineDataSymbol:'none',
+          chartColors: CHART_COLORS.slice(0, chartNames.length),
+          chartArea:{fill:{color:C.white}},
+          plotArea:{fill:{color:C.white}},
+          catAxisLabelColor:C.gray1, catAxisLabelFontSize:6, catAxisLabelRotate:45,
+          valAxisLabelColor:C.gray1, valAxisLabelFontSize:7,
+          valAxisMinVal:0, valAxisMaxVal:100,
+          valGridLine:{color:'E2E8F0', size:0.5}, catGridLine:{style:'none'},
+          showValue:false, showLegend:false, showTitle:false,
+        });
+      });
+
+      const footNote = chartNames.length < stores.length
+        ? `Se muestran las ${Math.min(3,stores.length)} tiendas con mejor y las ${Math.min(3,stores.length)} con menor cumplimiento del semestre (de ${stores.length} en total), para mantener las curvas legibles.`
+        : `Se muestran las ${chartNames.length} tienda(s) del período.`;
+      s.addText(footNote, {
+        x:0.3, y:7.18, w:12.7, h:0.28, fontSize:8.5, italic:true, color:C.gray1, fontFace:'Calibri',
+      });
+    }
   }
 
   // ─── SLIDE 4 — MAPA DE CALOR POR PROCESO ─────────────────
@@ -2755,16 +2783,6 @@ function processFromRows(rows, mesCol, tiendaCol, promedioCol, procesoFiltro) {
     return avg(vals);
   });
 
-  const heatData = {};
-  for (const st of stores) {
-    heatData[st] = months.map(mes => {
-      const row = getRow(st, mes);
-      if (!row) return null;
-      const v = readVal(row);
-      return v !== null ? Math.round(v) : null;
-    });
-  }
-
   const ranking = stores.map(st => {
     const vals = months.map(mes => {
       const row = getRow(st, mes);
@@ -2787,6 +2805,34 @@ function processFromRows(rows, mesCol, tiendaCol, promedioCol, procesoFiltro) {
   });
   procAvg.sort((a,b) => b.val - a.val);
 
+  // Tendencia mensual Tienda × Proceso — mismo criterio de escala (×500) que procAvg,
+  // pero conservando cada mes por separado (en vez de promediar el semestre) para
+  // poder graficar la curva de evolución de cada proceso, tienda por tienda.
+  const procMonthly = {};
+  PROCESSES.forEach((procName, i) => {
+    const col = procCols[i];
+    const byStore = {};
+    for (const st of stores) {
+      byStore[st] = months.map(mes => {
+        const row = getRow(st, mes);
+        if (!row) return null;
+        const v = toNum(row[col]);
+        return v !== null ? Math.round(Math.min(v * 500, 100)) : null;
+      });
+    }
+    procMonthly[procName] = byStore;
+  });
+
+  const allPcts = rows.map(readVal).filter(x=>x!==null);
+  const globalAvg2 = avg(allPcts);
+  const evoValid = evolucion.filter(x=>x!==null);
+  const bestMonthIdx   = evolucion.reduce((bi,v,i,a)=>v!=null&&(a[bi]==null||v>a[bi])?i:bi,0);
+  const worstMonthIdx  = evolucion.reduce((bi,v,i,a)=>v!=null&&(a[bi]==null||v<a[bi])?i:bi,0);
+  const bestMonthLabel  = monthLabels[bestMonthIdx] || '—';
+  const bestMonthVal    = evoValid.length ? Math.max(...evoValid) : 0;
+  const worstMonthLabel = monthLabels[worstMonthIdx] || '—';
+  const worstMonthVal   = evoValid.length ? Math.min(...evoValid) : 0;
+
   // Mapa de calor Tienda × Proceso — mismo criterio de escala (×500) que procAvg,
   // pero promediado por tienda en vez de global, para ver en qué proceso flaquea cada una.
   const heatDataProc = {};
@@ -2803,18 +2849,8 @@ function processFromRows(rows, mesCol, tiendaCol, promedioCol, procesoFiltro) {
     });
   }
 
-  const allPcts = rows.map(readVal).filter(x=>x!==null);
-  const globalAvg2 = avg(allPcts);
-  const evoValid = evolucion.filter(x=>x!==null);
-  const bestMonthIdx   = evolucion.reduce((bi,v,i,a)=>v!=null&&(a[bi]==null||v>a[bi])?i:bi,0);
-  const worstMonthIdx  = evolucion.reduce((bi,v,i,a)=>v!=null&&(a[bi]==null||v<a[bi])?i:bi,0);
-  const bestMonthLabel  = monthLabels[bestMonthIdx] || '—';
-  const bestMonthVal    = evoValid.length ? Math.max(...evoValid) : 0;
-  const worstMonthLabel = monthLabels[worstMonthIdx] || '—';
-  const worstMonthVal   = evoValid.length ? Math.min(...evoValid) : 0;
-
-  return { months, monthLabels, evolucion, stores, heatData, ranking, procAvg,
-    heatDataProc, procNames: PROCESSES,
+  return { months, monthLabels, evolucion, stores, ranking, procAvg,
+    procMonthly, heatDataProc, procNames: PROCESSES,
     globalAvg: globalAvg2||0, bestMonthLabel, bestMonthVal, worstMonthLabel, worstMonthVal,
     procesoFiltro: usaProceso ? procesoFiltro : null };
 }
