@@ -621,9 +621,10 @@
       <div class="slide-item"><div class="slide-num">1</div>Portada — KPIs semestral clave</div>
       <div class="slide-item"><div class="slide-num">2</div>Resumen Ejecutivo — Evolución mensual de cumplimiento</div>
       <div class="slide-item"><div class="slide-num">3</div>Mapa de Calor — Tienda × Mes</div>
-      <div class="slide-item"><div class="slide-num">4</div>Ranking de Tiendas — Promedio semestral</div>
-      <div class="slide-item"><div class="slide-num">5</div>Promedio Semestral por Proceso</div>
-      <div class="slide-item"><div class="slide-num">6</div>Infografía Resumen</div>
+      <div class="slide-item"><div class="slide-num">4</div>Mapa de Calor — Tienda × Proceso</div>
+      <div class="slide-item"><div class="slide-num">5</div>Ranking de Tiendas — Promedio semestral</div>
+      <div class="slide-item"><div class="slide-num">6</div>Promedio Semestral por Proceso</div>
+      <div class="slide-item"><div class="slide-num">7</div>Infografía Resumen</div>
     </div>
 
     <button class="download-btn" id="downloadBtn">
@@ -1141,6 +1142,7 @@ async function buildPptx(d) {
 
   const {months:mnths, monthLabels:mLbls, evolucion:evo, stores,
          heatData, ranking, procAvg, globalAvg,
+         heatDataProc, procNames,
          bestMonthLabel, bestMonthVal, worstMonthLabel, worstMonthVal} = d;
 
   const storesShort = stores.map(s => s.length > 14 ? s.slice(0,13)+'.' : s);
@@ -1288,7 +1290,57 @@ async function buildPptx(d) {
     });
   }
 
-  // ─── SLIDE 4 — RANKING DE TIENDAS ────────────────────────
+  // ─── SLIDE 4 — MAPA DE CALOR POR PROCESO ─────────────────
+  {
+    const s = pres.addSlide();
+    s.background = { color: C.off };
+    s.addShape(pres.ShapeType.rect, { x:0, y:0, w:13.3, h:0.65, fill:{color:C.navy} });
+    s.addShape(pres.ShapeType.rect, { x:0, y:0.65, w:13.3, h:0.05, fill:{color:C.gold} });
+    s.addText('MAPA DE CALOR — CUMPLIMIENTO POR TIENDA Y PROCESO', {
+      x:0.3, y:0, w:12, h:0.65, fontSize:18, bold:true, color:C.white, fontFace:'Calibri', valign:'middle',
+    });
+
+    const nProcs = procNames.length;
+    const cellWP = Math.min(1.7, (13.3 - 2.3) / nProcs);
+    const headerHP = 0.55;
+    const cellHP = Math.min(0.44, (7.5 - 0.9 - headerHP - 0.45) / (stores.length + 1));
+    const startXP = 2.2;
+    const startYP = 0.9;
+
+    procNames.forEach((p,j) => {
+      s.addShape(pres.ShapeType.rect, { x:startXP+j*cellWP, y:startYP, w:cellWP-0.04, h:headerHP, fill:{color:C.navy} });
+      s.addText(p, { x:startXP+j*cellWP, y:startYP, w:cellWP-0.04, h:headerHP, fontSize:8.5, bold:true, color:C.white, fontFace:'Calibri', align:'center', valign:'middle' });
+    });
+
+    stores.forEach((store,i) => {
+      const y = startYP + headerHP + i*cellHP;
+      s.addShape(pres.ShapeType.rect, { x:0.08, y, w:2.05, h:cellHP-0.04, fill:{color: i%2===0?'E8EDF5':C.white} });
+      s.addText(storesShort[i], { x:0.1, y, w:2.05, h:cellHP-0.04, fontSize:9, color:C.navy, fontFace:'Calibri', bold:true, valign:'middle' });
+
+      heatDataProc[store].forEach((val,j) => {
+        const fill = heatFill(val);
+        s.addShape(pres.ShapeType.rect, { x:startXP+j*cellWP, y, w:cellWP-0.04, h:cellHP-0.04, fill:{color:fill}, line:{color:C.white, width:1} });
+        s.addText(val!==null?`${val}%`:'—', {
+          x:startXP+j*cellWP, y, w:cellWP-0.04, h:cellHP-0.04,
+          fontSize:Math.min(11, cellHP*18), bold:true,
+          color:val!==null?heatTextColor(val):'999999',
+          fontFace:'Calibri', align:'center', valign:'middle',
+        });
+      });
+    });
+
+    const legendP = [
+      {col:'A5D6A7', label:'≥ 80% Óptimo'}, {col:'FFF176', label:'60–79% Aceptable'},
+      {col:'FFCC80', label:'40–59% En Riesgo'}, {col:'EF9A9A', label:'< 40% Crítico'},
+    ];
+    s.addText('LEYENDA:', { x:0.2, y:7.05, w:1.0, h:0.28, fontSize:9, bold:true, color:C.navy, fontFace:'Calibri' });
+    legendP.forEach((l,i) => {
+      s.addShape(pres.ShapeType.rect, { x:1.25+i*2.8, y:7.1, w:0.28, h:0.2, fill:{color:l.col} });
+      s.addText(l.label, { x:1.58+i*2.8, y:7.1, w:2.3, h:0.2, fontSize:9, color:C.gray1, fontFace:'Calibri', valign:'middle' });
+    });
+  }
+
+  // ─── SLIDE 5 — RANKING DE TIENDAS ────────────────────────
   {
     const s = pres.addSlide();
     s.background = { color: C.off };
@@ -1349,7 +1401,7 @@ async function buildPptx(d) {
     });
   }
 
-  // ─── SLIDE 5 — PROMEDIO POR PROCESO ──────────────────────
+  // ─── SLIDE 6 — PROMEDIO POR PROCESO ──────────────────────
   {
     const s = pres.addSlide();
     s.background = { color: C.off };
@@ -1395,7 +1447,7 @@ async function buildPptx(d) {
     });
   }
 
-  // ─── SLIDE 6 — INFOGRAFÍA RESUMEN ────────────────────────
+  // ─── SLIDE 7 — INFOGRAFÍA RESUMEN ────────────────────────
   {
     const s = pres.addSlide();
     s.background = { color: C.navy };
@@ -2735,6 +2787,22 @@ function processFromRows(rows, mesCol, tiendaCol, promedioCol, procesoFiltro) {
   });
   procAvg.sort((a,b) => b.val - a.val);
 
+  // Mapa de calor Tienda × Proceso — mismo criterio de escala (×500) que procAvg,
+  // pero promediado por tienda en vez de global, para ver en qué proceso flaquea cada una.
+  const heatDataProc = {};
+  for (const st of stores) {
+    const storeRows = rows.filter(r => (r[tiendaCol]||'').toString().trim() === st);
+    heatDataProc[st] = procCols.map(col => {
+      const vals = storeRows.flatMap(r => {
+        const v = toNum(r[col]);
+        return v !== null ? [v] : [];
+      });
+      if (!vals.length) return null;
+      const pct = (vals.reduce((a,b)=>a+b,0)/vals.length) * 500;
+      return Math.round(Math.min(pct, 100));
+    });
+  }
+
   const allPcts = rows.map(readVal).filter(x=>x!==null);
   const globalAvg2 = avg(allPcts);
   const evoValid = evolucion.filter(x=>x!==null);
@@ -2746,6 +2814,7 @@ function processFromRows(rows, mesCol, tiendaCol, promedioCol, procesoFiltro) {
   const worstMonthVal   = evoValid.length ? Math.min(...evoValid) : 0;
 
   return { months, monthLabels, evolucion, stores, heatData, ranking, procAvg,
+    heatDataProc, procNames: PROCESSES,
     globalAvg: globalAvg2||0, bestMonthLabel, bestMonthVal, worstMonthLabel, worstMonthVal,
     procesoFiltro: usaProceso ? procesoFiltro : null };
 }
@@ -2901,7 +2970,7 @@ async function generateDashboard() {
     generatedPres = pres;
     fileName = `${rawFileName}_${label.replace(/[^a-zA-Z0-9_\-]/g,'_')}_Dashboard.pptx`;
 
-    log('✅','Diapositivas generadas (6)','done');
+    log('✅','Diapositivas generadas (7)','done');
     log('🎨','Aplicando estilos…','active'); setProgress(75);
     await new Promise(r=>setTimeout(r,300));
     log('✅','Estilos aplicados','done');

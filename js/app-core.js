@@ -4002,6 +4002,7 @@ function generatePpt(opts){
   var SECCIONES=[
     {id:'kpis',        t:'KPIs de Tendencia'},
     {id:'analisis',    t:'Análisis de Tareas'},
+    {id:'mapa_calor',  t:'Mapa de Calor — Tienda y Actividad'},
     {id:'distribucion',t:'Distribución de Estado'},
     {id:'menor_cumpl', t:'Sucursales con Menor Calificacion'},
     {id:'pendientes',  t:'Sucursales con más Pendientes'}
@@ -4182,7 +4183,68 @@ function generatePpt(opts){
     });
   })();
 
-  /* ══════════ 3. DISTRIBUCIÓN DONUT ══════════ */
+  /* ══════════ 3. MAPA DE CALOR — TIENDA × ACTIVIDAD ══════════ */
+  if(secOn('mapa_calor'))(function(){
+    var s=mkSlide(TEA,'Mapa de Calor — Tienda y Actividad');
+    slideTitle(s,'Cumplimiento por Tienda y Actividad',TEA);
+    var nameOf=function(t){return (t.nombre&&t.nombre.trim())||(t.actividad&&t.actividad.trim())||'Sin nombre';};
+
+    var freqAct={};
+    tareas.forEach(function(t){var k=nameOf(t);freqAct[k]=(freqAct[k]||0)+1;});
+    var topAct=Object.entries(freqAct).sort(function(a,b){return b[1]-a[1];}).slice(0,5).map(function(e){return e[0];});
+
+    var freqStore={};
+    tareas.forEach(function(t){var k=t.tienda||'Sin tienda';freqStore[k]=(freqStore[k]||0)+1;});
+    var topStores=Object.entries(freqStore).sort(function(a,b){return b[1]-a[1];}).slice(0,7).map(function(e){return e[0];});
+
+    if(!topAct.length||!topStores.length){
+      s.addText('Sin tareas registradas en el período.',{x:.35,y:2.5,w:9.3,h:.4,fontSize:12,color:MUT,align:'center'});
+      return;
+    }
+
+    function pctCell(store,act){
+      var subset=tareas.filter(function(t){return (t.tienda||'Sin tienda')===store&&nameOf(t)===act;});
+      if(!subset.length)return null;
+      return Math.round(subset.filter(esResuelta).length/subset.length*100);
+    }
+    function heatBg(v){if(v==null)return LIN;if(v>=80)return GRN;if(v>=60)return AMB;if(v>=40)return ORG;return RED;}
+    function heatFg(v){if(v==null)return MUT;return WHT;}
+
+    var firstColW=1.95, sy=.86, headerH=.42;
+    var cellW=(9.32-firstColW)/topAct.length;
+    var cellH=Math.min(.46,(H-.34-sy-headerH)/topStores.length);
+
+    s.addShape(pptx.ShapeType.rect,{x:.34,y:sy,w:firstColW,h:headerH,fill:{color:NAV},line:{color:WHT,pt:.5}});
+    s.addText('Sucursal',{x:.34,y:sy,w:firstColW,h:headerH,fontSize:8,bold:true,color:WHT,align:'left',valign:'middle'});
+    topAct.forEach(function(act,j){
+      var x=.34+firstColW+j*cellW;
+      s.addShape(pptx.ShapeType.rect,{x:x,y:sy,w:cellW,h:headerH,fill:{color:NAV},line:{color:WHT,pt:.5}});
+      s.addText(act.slice(0,22),{x:x+.03,y:sy,w:cellW-.06,h:headerH,fontSize:6.5,bold:true,color:WHT,align:'center',valign:'middle'});
+    });
+
+    topStores.forEach(function(store,i){
+      var y=sy+headerH+i*cellH;
+      s.addShape(pptx.ShapeType.rect,{x:.34,y:y,w:firstColW,h:cellH-.02,fill:{color:i%2===0?OFF:WHT},line:{color:LIN,pt:.4}});
+      s.addText(store.slice(0,20),{x:.4,y:y,w:firstColW-.08,h:cellH-.02,fontSize:8,bold:true,color:NAV,valign:'middle'});
+      topAct.forEach(function(act,j){
+        var v=pctCell(store,act);
+        var x=.34+firstColW+j*cellW;
+        s.addShape(pptx.ShapeType.rect,{x:x,y:y,w:cellW-.02,h:cellH-.02,fill:{color:heatBg(v)},line:{color:WHT,pt:.75}});
+        s.addText(v!=null?v+'%':'—',{x:x,y:y,w:cellW-.02,h:cellH-.02,fontSize:9,bold:true,color:heatFg(v),align:'center',valign:'middle'});
+      });
+    });
+
+    var legend=[{c:GRN,l:'≥80% Óptimo'},{c:AMB,l:'60–79% Aceptable'},{c:ORG,l:'40–59% En riesgo'},{c:RED,l:'<40% Crítico'}];
+    var ly=sy+headerH+topStores.length*cellH+.14;
+    legend.forEach(function(g,i){
+      var lx=.34+i*2.35;
+      s.addShape(pptx.ShapeType.rect,{x:lx,y:ly,w:.2,h:.15,fill:{color:g.c},line:{color:g.c}});
+      s.addText(g.l,{x:lx+.28,y:ly-.03,w:2.05,h:.2,fontSize:7,color:SLT,valign:'middle'});
+    });
+    s.addText('% de tareas resueltas por tienda y actividad (top '+topAct.length+' actividades por frecuencia)',{x:.34,y:ly+.24,w:9.3,h:.2,fontSize:7,italic:true,color:MUT});
+  })();
+
+  /* ══════════ 4. DISTRIBUCIÓN DONUT ══════════ */
   if(secOn('distribucion'))(function(){
     var s=mkSlide(TEA,'Distribución de Estado de Tareas');
     slideTitle(s,'Distribución de Estado de Tareas',TEA);
@@ -4213,7 +4275,7 @@ function generatePpt(opts){
     s.addText('Total: '+tareas.length+' tareas',{x:4.95,y:4.7,w:4.7,h:.2,fontSize:8,color:MUT,align:'center'});
   })();
 
-  /* ══════════ 4. SUCURSALES MENOR CUMPLIMIENTO ══════════ */
+  /* ══════════ 5. SUCURSALES MENOR CUMPLIMIENTO ══════════ */
   if(secOn('menor_cumpl'))(function(){
     var s=mkSlide(RED,'Sucursales con Menor Calificacion');
     slideTitle(s,'Sucursales con Menor Calificacion',RED);
@@ -4244,7 +4306,7 @@ function generatePpt(opts){
     });
   })();
 
-  /* ══════════ 5. SUCURSALES MÁS PENDIENTES ══════════ */
+  /* ══════════ 6. SUCURSALES MÁS PENDIENTES ══════════ */
   if(secOn('pendientes'))(function(){
     var s=mkSlide(ORG,'Sucursales con más Pendientes');
     slideTitle(s,'Sucursales con más Pendientes',ORG);
