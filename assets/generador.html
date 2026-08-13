@@ -1269,31 +1269,18 @@ async function buildPptx(d) {
       x:0.3, y:0, w:12, h:0.65, fontSize:18, bold:true, color:C.white, fontFace:'Calibri', valign:'middle',
     });
 
-    // Solo se grafican mejores/peores tiendas del semestre (mismo criterio que el
-    // podio de la diapositiva de Ranking) para que las 6 curvas por panel sigan
-    // siendo legibles sin importar cuántas tiendas tenga el período.
-    const chartNames = [];
-    top3.concat(bot3).forEach(r => { if (r && !chartNames.includes(r.name)) chartNames.push(r.name); });
-    const CHART_COLORS = ['008080','F0A500','C62828','5C7AEA','E65100','2E7D32'];
-
-    if (!chartNames.length || !mLbls.length) {
+    // El valor de "proceso" por tienda y mes es una lectura binaria (0%/100%,
+    // cumplió o no). Graficar una línea por tienda producía 6 curvas en zigzag
+    // que se cruzaban y no se entendían. En vez de eso, cada panel muestra UNA
+    // sola curva: el % de tiendas que cumplieron ese proceso ese mes — igual de
+    // legible que la de Evolución Semestral, pero por proceso.
+    if (!mLbls.length) {
       s.addText('Sin datos suficientes para graficar la tendencia.', {
         x:0.3, y:3.4, w:12.7, h:0.5, fontSize:14, color:C.gray1, fontFace:'Calibri', align:'center',
       });
     } else {
-      // Leyenda compartida (misma para los 6 paneles, así no se repite 6 veces)
-      const legY = 0.82;
-      const legSlotW = 12.7 / chartNames.length;
-      chartNames.forEach((name,i) => {
-        const lx = 0.3 + i*legSlotW;
-        s.addShape(pres.ShapeType.rect, { x:lx, y:legY+0.06, w:0.26, h:0.07, fill:{color:CHART_COLORS[i]} });
-        s.addText(name.length>18?name.slice(0,17)+'.':name, {
-          x:lx+0.34, y:legY-0.02, w:legSlotW-0.36, h:0.24, fontSize:8.5, bold:true, color:C.navy, fontFace:'Calibri', valign:'middle',
-        });
-      });
-
       // Cuadrícula 3×2: un panel por proceso, curva de cumplimiento mes a mes
-      const gridX = 0.3, gridY = 1.16, gridW = 12.7, gridH = 5.98;
+      const gridX = 0.3, gridY = 0.9, gridW = 12.7, gridH = 6.0;
       const cols = 3, rows = 2, gapX = 0.22, gapY = 0.26;
       const panelW = (gridW - (cols-1)*gapX) / cols;
       const panelH = (gridH - (rows-1)*gapY) / rows;
@@ -1307,17 +1294,16 @@ async function buildPptx(d) {
         s.addShape(pres.ShapeType.rect, { x:px, y:py, w:panelW, h:titleH, fill:{color:C.navy} });
         s.addText(procName, { x:px+0.08, y:py, w:panelW-0.16, h:titleH, fontSize:9.5, bold:true, color:C.white, fontFace:'Calibri', valign:'middle' });
 
-        const byStore = procMonthly[procName];
-        const seriesData = chartNames.map((name,i) => ({
-          name: name.length>16?name.slice(0,15)+'.':name,
-          labels: mLbls,
-          values: byStore[name] ? byStore[name].slice() : mLbls.map(() => null),
-        }));
+        const byStore = procMonthly[procName] || {};
+        const serieProceso = mLbls.map((_, mi) => {
+          const vals = stores.map(st => byStore[st] ? byStore[st][mi] : null).filter(v => v != null);
+          return vals.length ? Math.round(vals.reduce((a,b) => a+b, 0) / vals.length) : null;
+        });
 
-        s.addChart(pres.ChartType.line, seriesData, {
+        s.addChart(pres.ChartType.line, [{ name: procName, labels: mLbls, values: serieProceso }], {
           x:px, y:py+titleH+0.02, w:panelW, h:panelH-titleH-0.02,
-          lineSize:1.5, lineSmooth:false, lineDataSymbol:'none',
-          chartColors: CHART_COLORS.slice(0, chartNames.length),
+          lineSize:1.75, lineSmooth:false, lineDataSymbol:'none',
+          chartColors:[C.teal],
           chartArea:{fill:{color:C.white}},
           plotArea:{fill:{color:C.white}},
           catAxisLabelColor:C.gray1, catAxisLabelFontSize:6, catAxisLabelRotate:45,
@@ -1328,10 +1314,7 @@ async function buildPptx(d) {
         });
       });
 
-      const footNote = chartNames.length < stores.length
-        ? `Se muestran las ${Math.min(3,stores.length)} tiendas con mejor y las ${Math.min(3,stores.length)} con menor cumplimiento del semestre (de ${stores.length} en total), para mantener las curvas legibles.`
-        : `Se muestran las ${chartNames.length} tienda(s) del período.`;
-      s.addText(footNote, {
+      s.addText('Cada punto representa el % de tiendas que cumplieron ese proceso ese mes.', {
         x:0.3, y:7.18, w:12.7, h:0.28, fontSize:8.5, italic:true, color:C.gray1, fontFace:'Calibri',
       });
     }
@@ -1576,9 +1559,6 @@ function buildHtmlDeck(d) {
   const storesShort = stores.map(s => s.length > 20 ? s.slice(0,19)+'.' : s);
   const top3 = ranking.slice(0,3);
   const bot3 = ranking.slice(-3).reverse();
-  const chartNames = [];
-  top3.concat(bot3).forEach(r => { if (r && !chartNames.includes(r.name)) chartNames.push(r.name); });
-  const CHART_COLORS = ['#00c9b1','#f0a500','#e35b5b','#7c8cf0','#f08a3c','#57c26b'];
   const round1 = v => Math.round((v==null?0:v)*10)/10;
 
   const payload = {
@@ -1601,11 +1581,24 @@ function buildHtmlDeck(d) {
       worstMonthLabel, worstMonthVal: round1(worstMonthVal),
       globalAvg: round1(globalAvg), nTiendas: stores.length,
     },
+    // Curva por proceso: UNA sola línea agregada (el % de tiendas que
+    // cumplieron ese proceso cada mes), no una línea por tienda. Con lecturas
+    // binarias (0%/100%) por tienda, graficar cada tienda por separado produce
+    // zigzags ilegibles; el promedio mensual sí es una curva de tendencia real,
+    // igual de clara que la de Evolución Semestral.
     tendencia: {
-      months: mLbls, procesos: procNames, colors: CHART_COLORS, tiendas: chartNames,
-      data: procNames.reduce((acc,p) => {
-        acc[p] = {};
-        chartNames.forEach(name => { acc[p][name] = (procMonthly[p] && procMonthly[p][name]) ? procMonthly[p][name] : mLbls.map(()=>null); });
+      months: mLbls, procesos: procNames,
+      series: procNames.reduce((acc,p) => {
+        const byStore = procMonthly[p] || {};
+        acc[p] = mLbls.map((_,mi) => {
+          const vals = stores.map(st => byStore[st] ? byStore[st][mi] : null).filter(v => v != null);
+          return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
+        });
+        return acc;
+      }, {}),
+      nTiendasConDato: procNames.reduce((acc,p) => {
+        const byStore = procMonthly[p] || {};
+        acc[p] = stores.filter(st => byStore[st] && byStore[st].some(v => v != null)).length;
         return acc;
       }, {}),
     },
@@ -2018,20 +2011,18 @@ addSlide(function(s){
 /* ---- 3. Tendencia por proceso ---- */
 addSlide(function(s){
   var head = el('div','slide-head reveal d1');
-  head.innerHTML = '<div><h2>Tendencia de Cumplimiento<\/h2><p class="sub">Tienda &times; Proceso &mdash; evolución mensual<\/p><\/div>';
+  head.innerHTML = '<div><h2>Tendencia de Cumplimiento<\/h2><p class="sub">% de tiendas que cumplieron cada proceso, mes a mes<\/p><\/div>';
   var tabs = el('div','tabs'); head.appendChild(tabs); s.appendChild(head);
   var cols = el('div','two-col reveal d2');
   var chartCard = el('div','card chart-card');
   var wrap = el('div','chart-wrap'); var cv=el('canvas'); var tt=el('div','tooltip'); wrap.appendChild(cv); wrap.appendChild(tt); chartCard.appendChild(wrap);
   cols.appendChild(chartCard);
   var side = el('div','side-stack');
-  var legendCard = el('div','card legend'); legendCard.appendChild(el('div','lbl','Tiendas'));
-  side.appendChild(legendCard);
-  side.appendChild(el('div','card insight'));
+  for(var i=0;i<4;i++){ side.appendChild(el('div','card insight')); }
   cols.appendChild(side);
   s.appendChild(cols);
-  s._chart = new LineChart(cv, tt);
-  s._tabs = tabs; s._legendCard = legendCard; s._insight = side.querySelector('.insight');
+  s._chart = new LineChart(cv, tt); s._chart.seriesNames=['Cumplimiento'];
+  s._tabs = tabs; s._insights = side.querySelectorAll('.insight');
 }, function(s){
   var d = DATA.tendencia;
   s._chart.resize();
@@ -2040,29 +2031,29 @@ addSlide(function(s){
     b.onclick = function(){ setProceso(s, p); };
     s._tabs.appendChild(b);
   });
-  d.tiendas.forEach(function(t,i){
-    var row = el('div','lgd-row');
-    row.innerHTML = '<span class="lgd-dot" style="background:'+d.colors[i]+';color:'+d.colors[i]+'"><\/span><span>'+t+'<\/span><span class="lgd-val" data-store="'+t+'">—<\/span>';
-    s._legendCard.appendChild(row);
-  });
   if (d.procesos.length) setProceso(s, d.procesos[0]);
 });
 function setProceso(s, proc){
   var d = DATA.tendencia;
   s._tabs.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b.textContent===proc); });
-  var series = d.tiendas.map(function(t){ return (d.data[proc] && d.data[proc][t]) || d.months.map(function(){return null;}); });
-  s._chart.seriesNames = d.tiendas;
-  s._chart.setData(d.months, series, d.colors);
+  var vals = d.series[proc] || d.months.map(function(){return null;});
+  s._chart.setData(d.months, [vals], ['#00c9b1']);
   s._chart.animateIn();
-  var lastVals = series.map(function(v){ return v[v.length-1]; }).filter(function(v){return v!=null;});
-  var avg = lastVals.length ? Math.round(lastVals.reduce(function(a,b){return a+b;},0)/lastVals.length) : 0;
-  var worst=0, worstName=d.tiendas[0]||'—';
-  d.tiendas.forEach(function(t){ var arr=d.data[proc]?d.data[proc][t]:null; if(!arr) return; var drop=(arr[0]||0)-(arr[arr.length-1]||0); if(drop>worst){worst=drop; worstName=t;} });
-  s._insight.innerHTML = '<div class="lbl">PROMEDIO DEL PROCESO<\/div><div class="val" style="color:#00c9b1">'+avg+'%<\/div><div class="lbl" style="margin-top:8px">MAYOR CAÍDA<\/div><div class="val" style="color:#f0a500;font-size:15px">'+(worst>0?worstName+' · -'+worst+'pp':'Sin caídas')+'<\/div>';
-  d.tiendas.forEach(function(t){
-    var lv = s._legendCard.querySelector('[data-store="'+t+'"]');
-    if(lv){ var arr=d.data[proc]?d.data[proc][t]:null; lv.textContent = (arr && arr[arr.length-1]!=null) ? arr[arr.length-1]+'%' : '—'; }
-  });
+
+  var valid = [];
+  vals.forEach(function(v,i){ if(v!=null) valid.push({v:v, mes:d.months[i]}); });
+  var avg = valid.length ? Math.round(valid.reduce(function(a,b){return a+b.v;},0)/valid.length) : 0;
+  var best = valid.length ? valid.reduce(function(a,b){return b.v>a.v?b:a;}) : {mes:'—', v:0};
+  var worst = valid.length ? valid.reduce(function(a,b){return b.v<a.v?b:a;}) : {mes:'—', v:0};
+  var nTiendas = d.nTiendasConDato[proc] || 0;
+
+  var specs = [
+    {lbl:'PICO MÁXIMO', val:best.mes, sub:fx1(best.v)+'%'},
+    {lbl:'MES MÁS BAJO', val:worst.mes, sub:fx1(worst.v)+'%'},
+    {lbl:'PROMEDIO DEL PROCESO', val:'Semestre', sub:fx1(avg)+'%'},
+    {lbl:'TIENDAS', val:'Con dato', sub:String(nTiendas)},
+  ];
+  specs.forEach(function(sp,i){ s._insights[i].innerHTML = '<div class="lbl">'+sp.lbl+'<\/div><div class="val">'+sp.val+'<\/div><div class="sub2">'+sp.sub+'<\/div>'; });
 }
 
 /* ---- 4. Mapa de calor ---- */
