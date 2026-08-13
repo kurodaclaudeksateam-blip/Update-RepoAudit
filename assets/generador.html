@@ -1839,18 +1839,28 @@ LineChart.prototype.render = function(progress){
   var xAt = function(i){ return L.padL+L.plotW*i/(n-1||1); };
   var yAt = function(v){ return L.padT+L.plotH*(1-v/100); };
   var self=this;
+  // Con varias series a la vez, los datos de "proceso" suelen ser una lectura
+  // 0/100 por mes (pasa/no pasa), no un promedio continuo. Conectar esos saltos
+  // con una diagonal recta hace zigzags que se cruzan y se ven "sucios"; con
+  // escalón (mantener el valor y saltar justo en el mes siguiente) se lee como
+  // lo que realmente es: el estado de cada mes, no una tendencia suavizada.
+  var stepped = self.series.length>1;
   this.series.forEach(function(vals,si){
     var shown = Math.max(1, Math.floor(vals.length*progress));
     ctx.beginPath();
-    var started=false;
+    var started=false, prevX=0, prevY=0;
     for(var i=0;i<shown;i++){
       if(vals[i]==null) continue;
       var x=xAt(i), y=yAt(vals[i]);
-      if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+      if(!started){ ctx.moveTo(x,y); started=true; }
+      else if(stepped){ ctx.lineTo(x,prevY); ctx.lineTo(x,y); }
+      else { ctx.lineTo(x,y); }
+      prevX=x; prevY=y;
     }
-    ctx.strokeStyle=self.colors[si]; ctx.lineWidth = self.series.length>1?2.2:2.6;
+    ctx.strokeStyle=self.colors[si]; ctx.lineWidth = self.series.length>1?2:2.6;
     ctx.lineJoin='round'; ctx.lineCap='round';
-    ctx.shadowColor=self.colors[si]; ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0;
+    if(stepped){ ctx.stroke(); }
+    else { ctx.shadowColor=self.colors[si]; ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0; }
     if(self.series.length===1 && shown>1){
       var grad=ctx.createLinearGradient(0,L.padT,0,L.h-L.padB);
       grad.addColorStop(0, self.colors[si]+'55'); grad.addColorStop(1, self.colors[si]+'00');
