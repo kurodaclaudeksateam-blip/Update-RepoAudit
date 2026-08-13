@@ -422,20 +422,23 @@ window.addEventListener('message',function(ev){
   var ifr=document.getElementById('iframe-generador');
   if(!ifr||ev.source!==ifr.contentWindow)return; /* solo el iframe del generador */
   if(d.type==='gen-ready'){ sendRazonesToGenerador(); return; }
-  if(d.type==='gen-download' && (d.b64||d.blob)){
+  if(d.type==='gen-download' && (d.b64||d.blob||d.html)){
     try{
+      var mime=d.mime||'application/vnd.openxmlformats-officedocument.presentationml.presentation';
       var blob;
-      if(d.b64){
+      if(d.html){
+        blob=new Blob([d.html],{type:mime});
+      } else if(d.b64){
         var bin=atob(d.b64), bytes=new Uint8Array(bin.length);
         for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
-        blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'});
+        blob=new Blob([bytes],{type:mime});
       } else { blob=d.blob; }
       var url=URL.createObjectURL(blob);
       var a=document.createElement('a');
       a.href=url; a.download=d.fileName||'Dashboard_Ejecutivo.pptx';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function(){URL.revokeObjectURL(url);},4000);
-    }catch(e){ console.error('Descarga PPTX falló',e); toast('⚠ No se pudo descargar el archivo'); }
+    }catch(e){ console.error('Descarga del reporte falló',e); toast('⚠ No se pudo descargar el archivo'); }
     return;
   }
 });

@@ -239,6 +239,18 @@
   }
   .reset-btn:hover { border-color: var(--teal); color: var(--teal); }
 
+  .format-toggle { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .format-opt {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+    background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 10px;
+    padding: 0.7rem 0.5rem; font-family: 'Inter', sans-serif; font-size: 0.8rem; font-weight: 600;
+    color: var(--gray-600); cursor: pointer; transition: border-color .2s, color .2s, background .2s;
+  }
+  .format-opt:hover { border-color: var(--teal); }
+  .format-opt.active { background: var(--teal-light); border-color: var(--teal); color: var(--teal); }
+  .format-opt[data-format="html"].active { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
+  .format-hint { font-size: 0.74rem; color: var(--gray-400); margin: 0 0 1rem; text-align: center; }
+
   footer {
     padding: 1.5rem; color: var(--gray-400);
     font-size: 0.73rem; text-align: center;
@@ -626,6 +638,13 @@
       <div class="slide-item"><div class="slide-num">6</div>Promedio Semestral por Proceso</div>
       <div class="slide-item"><div class="slide-num">7</div>Infografía Resumen</div>
     </div>
+
+    <div class="section-label">Formato de descarga</div>
+    <div class="format-toggle" id="formatToggle">
+      <button class="format-opt active" type="button" data-format="pptx">📊 Opción 1 · PowerPoint</button>
+      <button class="format-opt" type="button" data-format="html">✨ Opción 2 · HTML animado</button>
+    </div>
+    <div class="format-hint" id="formatHint">Archivo .pptx editable en PowerPoint.</div>
 
     <button class="download-btn" id="downloadBtn">
       <span>⬇️</span> Descargar Dashboard en PowerPoint
@@ -1539,6 +1558,659 @@ async function buildPptx(d) {
   }
 
   return pres;
+}
+
+// ═══════════════════════════════════════════════════════════
+// OPCIÓN 2 — DECK HTML ANIMADO (autocontenido, sin dependencias externas)
+// Genera el mismo contenido de buildPptx() pero como un documento .html
+// independiente: navegación por diapositivas, gráficas dibujadas a mano en
+// <canvas> con animación de entrada, y mapa de calor animado en CSS grid.
+// El HTML resultante no depende de este archivo: se puede abrir solo.
+// ═══════════════════════════════════════════════════════════
+function buildHtmlDeck(d) {
+  const {months:mnths, monthLabels:mLbls, evolucion:evo, stores,
+         ranking, procAvg, globalAvg,
+         procMonthly, heatDataProc, procNames,
+         bestMonthLabel, bestMonthVal, worstMonthLabel, worstMonthVal} = d;
+
+  const storesShort = stores.map(s => s.length > 20 ? s.slice(0,19)+'.' : s);
+  const top3 = ranking.slice(0,3);
+  const bot3 = ranking.slice(-3).reverse();
+  const chartNames = [];
+  top3.concat(bot3).forEach(r => { if (r && !chartNames.includes(r.name)) chartNames.push(r.name); });
+  const CHART_COLORS = ['#00c9b1','#f0a500','#e35b5b','#7c8cf0','#f08a3c','#57c26b'];
+  const round1 = v => Math.round((v==null?0:v)*10)/10;
+
+  const payload = {
+    meta: {
+      titulo: 'Dashboard Ejecutivo',
+      subtitulo: 'Cumplimiento de Procesos por Tienda' + (RAZON_ACTIVA ? ' · ' + RAZON_ACTIVA : '') + (d.procesoFiltro ? ' · Proceso: ' + d.procesoFiltro : ''),
+      semestre: (mnths[0]||'') + ' – ' + (mnths[mnths.length-1]||''),
+      pie: razonNombre(RAZON_ACTIVA) + ' | Reporte Semestral de Cumplimiento',
+      fecha: new Date().toLocaleDateString('es-MX', {day:'2-digit', month:'long', year:'numeric'}),
+    },
+    portada: {
+      promedio: round1(globalAvg),
+      mejorTienda: top3[0] ? { nombre: top3[0].name, val: round1(top3[0].val) } : null,
+      mejorMes: { label: bestMonthLabel, val: round1(bestMonthVal) },
+      nTiendas: stores.length,
+    },
+    evolucion: {
+      labels: mLbls, values: evo.map(v => v==null?null:round1(v)),
+      bestMonthLabel, bestMonthVal: round1(bestMonthVal),
+      worstMonthLabel, worstMonthVal: round1(worstMonthVal),
+      globalAvg: round1(globalAvg), nTiendas: stores.length,
+    },
+    tendencia: {
+      months: mLbls, procesos: procNames, colors: CHART_COLORS, tiendas: chartNames,
+      data: procNames.reduce((acc,p) => {
+        acc[p] = {};
+        chartNames.forEach(name => { acc[p][name] = (procMonthly[p] && procMonthly[p][name]) ? procMonthly[p][name] : mLbls.map(()=>null); });
+        return acc;
+      }, {}),
+    },
+    heatmap: {
+      procesos: procNames, tiendas: storesShort,
+      data: stores.map(s => heatDataProc[s] || procNames.map(()=>null)),
+    },
+    ranking: { items: ranking.map(r => ({ nombre: r.name, val: round1(r.val) })) },
+    procAvg: { items: procAvg.map(p => ({ nombre: p.name, val: round1(p.val) })) },
+    infografia: {
+      globalAvg: round1(globalAvg), nTiendas: stores.length, nMeses: mnths.length, nProcesos: procAvg.length,
+      top3: top3.map(r=>({nombre:r.name, val:round1(r.val)})),
+      bot3: bot3.map(r=>({nombre:r.name, val:round1(r.val)})),
+      bestMonthLabel, bestMonthVal: round1(bestMonthVal),
+    },
+  };
+
+  // Sanea el JSON antes de incrustarlo: si algún nombre de tienda/proceso trae
+  // el texto "</script" (por ejemplo un dato mal capturado en Excel), evita
+  // que corte el <script> del documento generado.
+  const dataJson = JSON.stringify(payload).replace(/<\/script/gi, '<\\/script');
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Ejecutivo — ${razonNombre(RAZON_ACTIVA)}</title>
+<style>
+:root{
+  --bg-0:#0a1224; --bg-1:#0d1730; --bg-2:#111d3d;
+  --ink-0:#f4f7ff; --ink-1:#aab8dd; --ink-2:#6f7fab;
+  --teal:#00c9b1; --gold:#f0a500; --line:rgba(255,255,255,.09);
+  --glass:rgba(255,255,255,.045); --glass-brd:rgba(255,255,255,.10);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; min-height:100vh; background:
+    radial-gradient(1100px 620px at 82% -8%, rgba(0,201,177,.14), transparent 60%),
+    radial-gradient(900px 520px at 6% 108%, rgba(240,165,0,.11), transparent 60%),
+    linear-gradient(160deg, var(--bg-0), var(--bg-1) 55%, var(--bg-2));
+  color:var(--ink-0);
+  font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  display:flex; align-items:center; justify-content:center;
+  padding:clamp(14px,2.6vw,34px);
+}
+.app{width:100%; max-width:1320px; display:flex; flex-direction:column; gap:12px}
+.topbar{display:flex; justify-content:space-between; align-items:center; padding:0 4px}
+.eyebrow{font-size:12px; font-weight:700; letter-spacing:.16em; color:var(--teal); text-transform:uppercase}
+.counter{font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums}
+
+.stage{position:relative; border-radius:22px; overflow:hidden;
+  background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+  border:1px solid var(--glass-brd);
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.04);
+  aspect-ratio:16/9;
+}
+.slide{position:absolute; inset:0; padding:clamp(20px,3vw,44px); display:flex; flex-direction:column; gap:16px;
+  opacity:0; pointer-events:none; transform:translateX(24px); transition:opacity .38s ease, transform .38s ease;}
+.slide.active{opacity:1; pointer-events:auto; transform:translateX(0)}
+.reveal{opacity:0; transform:translateY(12px); transition:opacity .5s ease, transform .5s ease}
+.slide.active .reveal{opacity:1; transform:translateY(0)}
+.d1{transition-delay:.05s} .d2{transition-delay:.15s} .d3{transition-delay:.25s} .d4{transition-delay:.35s}
+
+h1{margin:0; font-size:clamp(22px,3vw,36px); font-weight:800; letter-spacing:-.01em; line-height:1.06}
+h1 em{font-style:normal; background:linear-gradient(95deg,var(--teal),#7fe9db); -webkit-background-clip:text; background-clip:text; color:transparent}
+h2{margin:0; font-size:clamp(18px,2.2vw,26px); font-weight:800; letter-spacing:-.01em}
+.sub{margin:6px 0 0; color:var(--ink-1); font-size:clamp(11px,1vw,13.5px)}
+
+.slide-head{display:flex; justify-content:space-between; align-items:flex-end; gap:20px}
+.tag{font-size:10.5px; color:var(--ink-2); border:1px solid var(--line); padding:4px 10px; border-radius:999px}
+
+.grid-4{display:grid; grid-template-columns:repeat(4,1fr); gap:14px}
+.circle-kpi{background:var(--glass); border:1px solid var(--glass-brd); border-radius:16px; padding:16px; display:flex; flex-direction:column; gap:6px; align-items:flex-start}
+.circle-kpi .val{font-size:clamp(20px,2.4vw,30px); font-weight:800; color:var(--teal); font-variant-numeric:tabular-nums}
+.circle-kpi .lbl{font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2); font-weight:700}
+
+.two-col{display:grid; grid-template-columns:1.6fr 1fr; gap:16px; flex:1; min-height:0}
+.card{background:var(--glass); border:1px solid var(--glass-brd); border-radius:16px; padding:14px 16px}
+.chart-card{display:flex; flex-direction:column; min-height:0}
+.chart-wrap{flex:1; min-height:0; position:relative}
+canvas{width:100%; height:100%; display:block}
+.tooltip{position:absolute; pointer-events:none; background:#0d1730; border:1px solid var(--glass-brd);
+  border-radius:10px; padding:7px 10px; font-size:11px; color:var(--ink-0); box-shadow:0 14px 30px -10px rgba(0,0,0,.6);
+  opacity:0; transition:opacity .12s ease; transform:translate(-50%,-112%); white-space:nowrap; z-index:5;}
+.tooltip b{color:var(--teal)}
+
+.side-stack{display:flex; flex-direction:column; gap:10px; min-height:0}
+.insight{display:flex; flex-direction:column; gap:2px; flex:1; justify-content:center}
+.insight .lbl{font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2); font-weight:700}
+.insight .val{font-size:clamp(16px,1.8vw,20px); font-weight:800; font-variant-numeric:tabular-nums}
+.insight .sub2{font-size:11px; color:var(--ink-1)}
+
+.tabs{display:flex; gap:6px; flex-wrap:wrap}
+.tab{font:inherit; font-size:11.5px; font-weight:600; color:var(--ink-1); background:var(--glass);
+  border:1px solid var(--glass-brd); padding:7px 13px; border-radius:999px; cursor:pointer;
+  transition:transform .15s ease, color .15s ease, background .15s ease}
+.tab:hover{transform:translateY(-1px); color:var(--ink-0)}
+.tab.active{color:#04241f; background:linear-gradient(95deg,var(--teal),#5be0cd); border-color:transparent; font-weight:700}
+
+.legend{display:flex; flex-direction:column; gap:6px}
+.legend .lbl{font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2); font-weight:700; margin-bottom:2px}
+.lgd-row{display:flex; align-items:center; gap:8px; font-size:11px; color:var(--ink-1)}
+.lgd-dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 8px currentColor}
+.lgd-val{margin-left:auto; font-weight:700; color:var(--ink-0); font-variant-numeric:tabular-nums}
+
+.heat-wrap{flex:1; min-height:0; display:flex; flex-direction:column; gap:6px}
+.heat-grid{flex:1; display:grid; gap:3px; min-height:0}
+.heat-cell{border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;
+  opacity:0; transform:scale(.85); transition:opacity .35s ease, transform .35s ease}
+.slide.active .heat-cell.show{opacity:1; transform:scale(1)}
+.heat-head{font-size:9.5px; font-weight:700; color:var(--ink-1); display:flex; align-items:center; justify-content:center; text-align:center; padding:2px}
+.heat-row-lbl{font-size:10.5px; font-weight:700; color:var(--ink-0); display:flex; align-items:center; padding-left:6px}
+
+.bars{display:flex; flex-direction:column; gap:8px; overflow:auto}
+.bar-row{display:grid; grid-template-columns:120px 1fr 46px; align-items:center; gap:10px}
+.bar-row .name{font-size:11px; color:var(--ink-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.bar-track{height:9px; border-radius:5px; background:rgba(255,255,255,.08); overflow:hidden}
+.bar-fill{height:100%; border-radius:5px; width:0%; transition:width 1s cubic-bezier(.2,.8,.2,1)}
+.bar-row .pct{font-size:11.5px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums}
+
+.podium{display:flex; flex-direction:column; gap:8px}
+.podium-row{display:flex; align-items:center; gap:10px; background:var(--glass); border:1px solid var(--glass-brd); border-radius:12px; padding:9px 12px}
+.medal{font-size:16px}
+.podium-row .name{flex:1; font-size:12px; font-weight:700}
+.podium-row .val{font-size:14px; font-weight:800; color:var(--teal); font-variant-numeric:tabular-nums}
+
+.foot{display:flex; justify-content:space-between; color:var(--ink-2); font-size:10px}
+
+.nav{display:flex; justify-content:space-between; align-items:center}
+.nav-btns{display:flex; gap:8px}
+.nav-btn{width:38px; height:38px; border-radius:50%; border:1px solid var(--glass-brd); background:var(--glass);
+  color:var(--ink-0); font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:background .15s ease, transform .15s ease}
+.nav-btn:hover{background:rgba(255,255,255,.12); transform:translateY(-1px)}
+.nav-btn:disabled{opacity:.3; cursor:default; transform:none}
+.dots{display:flex; gap:7px; align-items:center}
+.dot{width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.18); cursor:pointer; transition:background .2s ease, transform .2s ease; border:none; padding:0}
+.dot.active{background:var(--teal); transform:scale(1.3)}
+
+@media (prefers-reduced-motion:reduce){ *{transition-duration:.01ms !important} }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="eyebrow" id="eyebrow">Grupo Kuroda · Reporte Ejecutivo</span>
+    <span class="counter"><span id="curNum">1</span> / <span id="totNum">7</span></span>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <div class="nav">
+    <div class="dots" id="dots"></div>
+    <div class="nav-btns">
+      <button class="nav-btn" id="prevBtn" aria-label="Anterior">‹</button>
+      <button class="nav-btn" id="nextBtn" aria-label="Siguiente">›</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var DATA = ${dataJson};
+
+function heatColor(v){
+  if(v===null||v===undefined) return {bg:'rgba(255,255,255,.06)', fg:'#6f7fab'};
+  if(v>=80) return {bg:'rgba(87,194,107,.85)', fg:'#04240c'};
+  if(v>=60) return {bg:'rgba(240,200,80,.85)', fg:'#2b2000'};
+  if(v>=40) return {bg:'rgba(240,138,60,.85)', fg:'#2b1300'};
+  return {bg:'rgba(227,91,91,.85)', fg:'#2b0505'};
+}
+function barColor(v){ return v>=80?'#57c26b':v>=60?'#f0a500':'#e35b5b'; }
+function fx1(v){ v=Number(v); return isFinite(v)?v.toFixed(1):'0.0'; }
+function easeOutCubic(t){ return 1-Math.pow(1-t,3); }
+function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; }
+
+/* ---------- animación de conteo ---------- */
+function animateCount(node, target, decimals, suffix){
+  var start = 0, dur = 900, t0 = null;
+  suffix = suffix || '';
+  function step(ts){
+    if(!t0) t0 = ts;
+    var p = Math.min(1, (ts-t0)/dur);
+    var v = start + (target-start)*easeOutCubic(p);
+    node.textContent = v.toFixed(decimals) + suffix;
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------- gráfica de líneas genérica en canvas ---------- */
+function LineChart(canvas, tooltipEl){
+  this.canvas = canvas; this.ctx = canvas.getContext('2d'); this.tooltip = tooltipEl;
+  this.hoverIdx = -1; this.dpr = Math.max(1, window.devicePixelRatio||1);
+  var self = this;
+  canvas.addEventListener('mousemove', function(e){ self.onMove(e); });
+  canvas.addEventListener('mouseleave', function(){ self.hoverIdx=-1; if(self.tooltip) self.tooltip.style.opacity='0'; self.render(1); });
+}
+LineChart.prototype.setData = function(labels, series, colors){
+  this.labels = labels; this.series = series; this.colors = colors; this.hoverIdx = -1;
+};
+LineChart.prototype.resize = function(){
+  var r = this.canvas.parentElement.getBoundingClientRect();
+  this.dpr = Math.max(1, window.devicePixelRatio||1);
+  this.canvas.width = r.width*this.dpr; this.canvas.height = r.height*this.dpr;
+  this.canvas.style.width = r.width+'px'; this.canvas.style.height = r.height+'px';
+};
+LineChart.prototype.layout = function(){
+  var w = this.canvas.width/this.dpr, h = this.canvas.height/this.dpr;
+  var padL=30,padR=10,padT=10,padB=22;
+  return {w:w,h:h,padL:padL,padR:padR,padT:padT,padB:padB,plotW:w-padL-padR,plotH:h-padT-padB};
+};
+LineChart.prototype.render = function(progress){
+  var ctx=this.ctx, L=this.layout();
+  ctx.setTransform(this.dpr,0,0,this.dpr,0,0);
+  ctx.clearRect(0,0,L.w,L.h);
+  ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=1;
+  for(var g=0; g<=4; g++){ var y=L.padT+L.plotH*g/4; ctx.beginPath(); ctx.moveTo(L.padL,y); ctx.lineTo(L.w-L.padR,y); ctx.stroke(); }
+  ctx.fillStyle='rgba(170,184,221,.55)'; ctx.font='10px -apple-system,Segoe UI,sans-serif';
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  [100,75,50,25,0].forEach(function(v,i){ ctx.fillText(v+'%', L.padL-8, L.padT+L.plotH*i/4); });
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  var n = this.labels.length;
+  var skip = Math.max(1, Math.ceil(n/10));
+  this.labels.forEach(function(m,i){
+    if(i%skip!==0 && i!==n-1) return;
+    var x=L.padL+L.plotW*i/(n-1||1); ctx.fillText(m, x, L.h-L.padB+7);
+  });
+
+  var xAt = function(i){ return L.padL+L.plotW*i/(n-1||1); };
+  var yAt = function(v){ return L.padT+L.plotH*(1-v/100); };
+  var self=this;
+  this.series.forEach(function(vals,si){
+    var shown = Math.max(1, Math.floor(vals.length*progress));
+    ctx.beginPath();
+    var started=false;
+    for(var i=0;i<shown;i++){
+      if(vals[i]==null) continue;
+      var x=xAt(i), y=yAt(vals[i]);
+      if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=self.colors[si]; ctx.lineWidth = self.series.length>1?2.2:2.6;
+    ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.shadowColor=self.colors[si]; ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0;
+    if(self.series.length===1 && shown>1){
+      var grad=ctx.createLinearGradient(0,L.padT,0,L.h-L.padB);
+      grad.addColorStop(0, self.colors[si]+'55'); grad.addColorStop(1, self.colors[si]+'00');
+      ctx.lineTo(xAt(shown-1), L.h-L.padB); ctx.lineTo(xAt(0), L.h-L.padB); ctx.closePath();
+      ctx.fillStyle=grad; ctx.fill();
+    }
+    for(var i2=0;i2<shown;i2++){
+      if(vals[i2]==null) continue;
+      var x2=xAt(i2), y2=yAt(vals[i2]); var hv=(i2===self.hoverIdx);
+      ctx.beginPath(); ctx.arc(x2,y2, hv?4.4:2.4, 0, Math.PI*2);
+      ctx.fillStyle=self.colors[si]; ctx.fill();
+      if(hv){ ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=1.3; ctx.stroke(); }
+    }
+  });
+  if(this.hoverIdx>=0){
+    var xg=xAt(this.hoverIdx);
+    ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(xg,L.padT); ctx.lineTo(xg,L.h-L.padB); ctx.stroke(); ctx.setLineDash([]);
+  }
+};
+LineChart.prototype.animateIn = function(){
+  // Pinta el estado final de inmediato (síncrono) como respaldo, por si el
+  // navegador retrasa el primer requestAnimationFrame (pestaña recién abierta
+  // en segundo plano, dispositivo lento, etc.) — así la gráfica nunca se ve en
+  // blanco. En uso normal, el primer frame de la animación lo sobreescribe de
+  // inmediato y no se nota.
+  this.render(1);
+  var self=this, t0=null, dur=850;
+  function step(ts){ if(!t0)t0=ts; var p=Math.min(1,(ts-t0)/dur); self.render(easeOutCubic(p)); if(p<1) requestAnimationFrame(step); }
+  requestAnimationFrame(step);
+};
+LineChart.prototype.onMove = function(e){
+  var L=this.layout(); var rect=this.canvas.getBoundingClientRect(); var x=e.clientX-rect.left;
+  var n=this.labels.length; var idx=Math.round((x-L.padL)/(L.plotW/((n-1)||1)));
+  var clamped=Math.max(0,Math.min(n-1,idx));
+  if(clamped!==this.hoverIdx){ this.hoverIdx=clamped; this.render(1); }
+  if(!this.tooltip) return;
+  var xg=L.padL+L.plotW*this.hoverIdx/((n-1)||1);
+  var rows='';
+  for(var i=0;i<this.series.length;i++){
+    var v=this.series[i][this.hoverIdx];
+    rows += '<div><span style="color:'+this.colors[i]+'">●<\/span> '+(this.seriesNames?this.seriesNames[i]:'')+' <b>'+(v==null?'—':v+'%')+'<\/b><\/div>';
+  }
+  this.tooltip.innerHTML = '<div style="margin-bottom:3px;color:#aab8dd">'+this.labels[this.hoverIdx]+'<\/div>'+rows;
+  this.tooltip.style.left = xg+'px';
+  this.tooltip.style.top = (L.padT+L.plotH*0.1)+'px';
+  this.tooltip.style.opacity='1';
+};
+
+/* ---------- gráfica de barras horizontales genérica ---------- */
+function drawBarChart(canvas, items){
+  var dpr=Math.max(1,window.devicePixelRatio||1);
+  var r=canvas.parentElement.getBoundingClientRect();
+  canvas.width=r.width*dpr; canvas.height=r.height*dpr;
+  canvas.style.width=r.width+'px'; canvas.style.height=r.height+'px';
+  var ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  var w=r.width, h=r.height;
+  ctx.clearRect(0,0,w,h);
+  var labelW=Math.min(150, w*0.32), padR=44, rowGap=8;
+  var n=items.length, rowH=Math.min(26,(h-(n-1)*rowGap)/n);
+  var maxV=100;
+  items.forEach(function(it,i){
+    var y=i*(rowH+rowGap);
+    ctx.fillStyle='rgba(244,247,255,.82)'; ctx.font='11px -apple-system,Segoe UI,sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='middle';
+    var label=it.nombre.length>20?it.nombre.slice(0,19)+'.':it.nombre;
+    ctx.fillText(label, 0, y+rowH/2);
+    var barX=labelW, barW=w-labelW-padR;
+    ctx.fillStyle='rgba(255,255,255,.08)';
+    roundRect(ctx, barX, y+rowH*0.22, barW, rowH*0.56, 5); ctx.fill();
+    var fillW=Math.max(2, barW*Math.min(100,it.val)/maxV);
+    ctx.fillStyle=it.color;
+    roundRect(ctx, barX, y+rowH*0.22, fillW, rowH*0.56, 5); ctx.fill();
+    ctx.fillStyle=it.color; ctx.textAlign='right'; ctx.font='bold 11px -apple-system,Segoe UI,sans-serif';
+    ctx.fillText(fx1(it.val)+'%', w, y+rowH/2);
+  });
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+/* ============ construcción de diapositivas ============ */
+var stage = document.getElementById('stage');
+var slides = [];
+var rendered = [];
+
+function addSlide(buildFn, renderFn){
+  var s = el('section','slide'); stage.appendChild(s); slides.push(s); rendered.push(false);
+  buildFn(s);
+  s._render = renderFn;
+}
+
+/* ---- 1. Portada ---- */
+addSlide(function(s){
+  s.appendChild(el('div','reveal d1', '<h1>'+DATA.meta.titulo.replace('Ejecutivo','<em>Ejecutivo<\/em>')+'<\/h1><p class="sub">'+DATA.meta.subtitulo+' &middot; '+DATA.meta.semestre+'<\/p>'));
+  var grid = el('div','grid-4 reveal d2');
+  ['promedio','mejorTienda','mejorMes','nTiendas'].forEach(function(){ grid.appendChild(el('div','circle-kpi')); });
+  s.appendChild(grid);
+  var idx = el('div','card reveal d3');
+  idx.style.flex='1';
+  s.appendChild(idx);
+  s.appendChild(el('div','foot reveal d4','<span>'+DATA.meta.pie+'<\/span><span>'+DATA.meta.fecha+'<\/span>'));
+}, function(s){
+  var d = DATA.portada;
+  var cards = s.querySelectorAll('.circle-kpi');
+  var specs = [
+    {lbl:'PROMEDIO SEMESTRAL', val:d.promedio, suf:'%'},
+    {lbl:'MEJOR TIENDA', val:d.mejorTienda?d.mejorTienda.val:0, suf:'%', name:d.mejorTienda?d.mejorTienda.nombre:'—'},
+    {lbl:'MEJOR MES', val:d.mejorMes.val, suf:'%', name:d.mejorMes.label},
+    {lbl:'TIENDAS ANALIZADAS', val:d.nTiendas, suf:''},
+  ];
+  specs.forEach(function(sp,i){
+    var c = cards[i];
+    var valEl = el('div','val','0'+sp.suf);
+    c.appendChild(valEl);
+    if(sp.name) c.appendChild(el('div','sub2',sp.name));
+    c.appendChild(el('div','lbl',sp.lbl));
+    animateCount(valEl, sp.val, sp.suf==='%'?1:0, sp.suf);
+  });
+  var idx2 = s.querySelector('.card');
+  var titles = ['Portada','Evolución Semestral','Tendencia por Tienda y Proceso','Mapa de Calor por Proceso','Ranking de Tiendas','Promedio por Proceso','Infografía Resumen'];
+  var html = '<div class="lbl" style="margin-bottom:8px">CONTENIDO<\/div>';
+  titles.forEach(function(t,i){ html += '<div style="display:flex;gap:10px;padding:5px 0;font-size:12.5px;color:var(--ink-1)"><b style="color:var(--teal);width:20px">'+String(i+1).padStart(2,'0')+'<\/b>'+t+'<\/div>'; });
+  idx2.innerHTML = html;
+});
+
+/* ---- 2. Evolución ---- */
+addSlide(function(s){
+  s.appendChild(el('div','slide-head reveal d1','<div><h2>Resumen Ejecutivo<\/h2><p class="sub">Evolución mensual del cumplimiento promedio<\/p><\/div><span class="tag">Tendencia general<\/span>'));
+  var cols = el('div','two-col reveal d2');
+  var chartCard = el('div','card chart-card');
+  var wrap = el('div','chart-wrap'); var cv=el('canvas'); var tt=el('div','tooltip'); wrap.appendChild(cv); wrap.appendChild(tt); chartCard.appendChild(wrap);
+  cols.appendChild(chartCard);
+  var side = el('div','side-stack');
+  for(var i=0;i<4;i++){ side.appendChild(el('div','card insight')); }
+  cols.appendChild(side);
+  s.appendChild(cols);
+  s._chart = new LineChart(cv, tt); s._chart.seriesNames=['Promedio'];
+}, function(s){
+  var d = DATA.evolucion;
+  s._chart.resize(); s._chart.setData(d.labels, [d.values], ['#00c9b1']);
+  s._chart.animateIn();
+  var side = s.querySelectorAll('.insight');
+  var specs = [
+    {lbl:'PICO MÁXIMO', val:d.bestMonthLabel, sub:fx1(d.bestMonthVal)+'%'},
+    {lbl:'MES MÁS BAJO', val:d.worstMonthLabel, sub:fx1(d.worstMonthVal)+'%'},
+    {lbl:'PROMEDIO GENERAL', val:'Semestre', sub:fx1(d.globalAvg)+'%'},
+    {lbl:'TIENDAS', val:'Analizadas', sub:String(d.nTiendas)},
+  ];
+  specs.forEach(function(sp,i){ side[i].innerHTML = '<div class="lbl">'+sp.lbl+'<\/div><div class="val">'+sp.val+'<\/div><div class="sub2">'+sp.sub+'<\/div>'; });
+});
+
+/* ---- 3. Tendencia por proceso ---- */
+addSlide(function(s){
+  var head = el('div','slide-head reveal d1');
+  head.innerHTML = '<div><h2>Tendencia de Cumplimiento<\/h2><p class="sub">Tienda &times; Proceso &mdash; evolución mensual<\/p><\/div>';
+  var tabs = el('div','tabs'); head.appendChild(tabs); s.appendChild(head);
+  var cols = el('div','two-col reveal d2');
+  var chartCard = el('div','card chart-card');
+  var wrap = el('div','chart-wrap'); var cv=el('canvas'); var tt=el('div','tooltip'); wrap.appendChild(cv); wrap.appendChild(tt); chartCard.appendChild(wrap);
+  cols.appendChild(chartCard);
+  var side = el('div','side-stack');
+  var legendCard = el('div','card legend'); legendCard.appendChild(el('div','lbl','Tiendas'));
+  side.appendChild(legendCard);
+  side.appendChild(el('div','card insight'));
+  cols.appendChild(side);
+  s.appendChild(cols);
+  s._chart = new LineChart(cv, tt);
+  s._tabs = tabs; s._legendCard = legendCard; s._insight = side.querySelector('.insight');
+}, function(s){
+  var d = DATA.tendencia;
+  s._chart.resize();
+  d.procesos.forEach(function(p,i){
+    var b = el('button','tab'+(i===0?' active':''), p);
+    b.onclick = function(){ setProceso(s, p); };
+    s._tabs.appendChild(b);
+  });
+  d.tiendas.forEach(function(t,i){
+    var row = el('div','lgd-row');
+    row.innerHTML = '<span class="lgd-dot" style="background:'+d.colors[i]+';color:'+d.colors[i]+'"><\/span><span>'+t+'<\/span><span class="lgd-val" data-store="'+t+'">—<\/span>';
+    s._legendCard.appendChild(row);
+  });
+  if (d.procesos.length) setProceso(s, d.procesos[0]);
+});
+function setProceso(s, proc){
+  var d = DATA.tendencia;
+  s._tabs.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b.textContent===proc); });
+  var series = d.tiendas.map(function(t){ return (d.data[proc] && d.data[proc][t]) || d.months.map(function(){return null;}); });
+  s._chart.seriesNames = d.tiendas;
+  s._chart.setData(d.months, series, d.colors);
+  s._chart.animateIn();
+  var lastVals = series.map(function(v){ return v[v.length-1]; }).filter(function(v){return v!=null;});
+  var avg = lastVals.length ? Math.round(lastVals.reduce(function(a,b){return a+b;},0)/lastVals.length) : 0;
+  var worst=0, worstName=d.tiendas[0]||'—';
+  d.tiendas.forEach(function(t){ var arr=d.data[proc]?d.data[proc][t]:null; if(!arr) return; var drop=(arr[0]||0)-(arr[arr.length-1]||0); if(drop>worst){worst=drop; worstName=t;} });
+  s._insight.innerHTML = '<div class="lbl">PROMEDIO DEL PROCESO<\/div><div class="val" style="color:#00c9b1">'+avg+'%<\/div><div class="lbl" style="margin-top:8px">MAYOR CAÍDA<\/div><div class="val" style="color:#f0a500;font-size:15px">'+(worst>0?worstName+' · -'+worst+'pp':'Sin caídas')+'<\/div>';
+  d.tiendas.forEach(function(t){
+    var lv = s._legendCard.querySelector('[data-store="'+t+'"]');
+    if(lv){ var arr=d.data[proc]?d.data[proc][t]:null; lv.textContent = (arr && arr[arr.length-1]!=null) ? arr[arr.length-1]+'%' : '—'; }
+  });
+}
+
+/* ---- 4. Mapa de calor ---- */
+addSlide(function(s){
+  s.appendChild(el('div','slide-head reveal d1','<div><h2>Mapa de Calor<\/h2><p class="sub">Cumplimiento por tienda y proceso<\/p><\/div>'));
+  var wrap = el('div','card heat-wrap reveal d2'); wrap.style.flex='1';
+  var grid = el('div','heat-grid'); wrap.appendChild(grid);
+  var legend = el('div','legend'); legend.style.flexDirection='row'; legend.style.flexWrap='wrap'; legend.style.gap='14px';
+  [['≥ 80% Óptimo','#57c26b'],['60–79% Aceptable','#f0c850'],['40–59% En riesgo','#f08a3c'],['< 40% Crítico','#e35b5b']].forEach(function(it){
+    legend.appendChild(el('div','lgd-row','<span class="lgd-dot" style="background:'+it[1]+';color:'+it[1]+'"><\/span><span>'+it[0]+'<\/span>'));
+  });
+  wrap.appendChild(legend);
+  s.appendChild(wrap);
+  s._grid = grid;
+}, function(s){
+  var d = DATA.heatmap;
+  s._grid.style.gridTemplateColumns = '150px repeat('+d.procesos.length+',1fr)';
+  s._grid.style.gridTemplateRows = '30px repeat('+d.tiendas.length+',1fr)';
+  s._grid.innerHTML='';
+  s._grid.appendChild(el('div','heat-head',''));
+  d.procesos.forEach(function(p){ s._grid.appendChild(el('div','heat-head',p)); });
+  d.tiendas.forEach(function(t,ti){
+    s._grid.appendChild(el('div','heat-row-lbl',t));
+    d.procesos.forEach(function(p,pi){
+      var v = d.data[ti][pi];
+      var c = heatColor(v);
+      var cell = el('div','heat-cell', v==null?'—':v+'%');
+      cell.style.background=c.bg; cell.style.color=c.fg;
+      cell.style.transitionDelay=(((ti*d.procesos.length)+pi)*12)+'ms';
+      s._grid.appendChild(cell);
+    });
+  });
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      s._grid.querySelectorAll('.heat-cell').forEach(function(c){ c.classList.add('show'); });
+    });
+  });
+});
+
+/* ---- 5. Ranking ---- */
+addSlide(function(s){
+  s.appendChild(el('div','slide-head reveal d1','<div><h2>Ranking de Tiendas<\/h2><p class="sub">Promedio semestral, de mayor a menor<\/p><\/div>'));
+  var cols = el('div','two-col reveal d2');
+  var chartCard = el('div','card chart-card');
+  var wrap = el('div','chart-wrap'); var cv=el('canvas'); wrap.appendChild(cv); chartCard.appendChild(wrap);
+  cols.appendChild(chartCard);
+  var side = el('div','side-stack');
+  side.appendChild(el('div','lbl','PODIO SEMESTRAL'));
+  var podium = el('div','podium'); side.appendChild(podium);
+  cols.appendChild(side);
+  s.appendChild(cols);
+  s._cv = cv; s._podium = podium;
+}, function(s){
+  var items = DATA.ranking.items.map(function(r){ return {nombre:r.nombre, val:r.val, color:barColor(r.val)}; });
+  drawBarChart(s._cv, items);
+  var medals=['🥇','🥈','🥉'];
+  s._podium.innerHTML='';
+  items.slice(0,3).forEach(function(it,i){
+    var row = el('div','podium-row');
+    row.innerHTML = '<span class="medal">'+medals[i]+'<\/span><span class="name">'+it.nombre+'<\/span><span class="val">'+fx1(it.val)+'%<\/span>';
+    s._podium.appendChild(row);
+  });
+});
+
+/* ---- 6. Promedio por proceso ---- */
+addSlide(function(s){
+  s.appendChild(el('div','slide-head reveal d1','<div><h2>Promedio por Proceso<\/h2><p class="sub">Cumplimiento semestral de cada proceso<\/p><\/div>'));
+  var cols = el('div','two-col reveal d2');
+  var chartCard = el('div','card chart-card');
+  var wrap = el('div','chart-wrap'); var cv=el('canvas'); wrap.appendChild(cv); chartCard.appendChild(wrap);
+  cols.appendChild(chartCard);
+  var side = el('div','card'); side.style.overflow='auto';
+  var bars = el('div','bars'); side.appendChild(bars);
+  cols.appendChild(side);
+  s.appendChild(cols);
+  s._cv=cv; s._bars=bars;
+}, function(s){
+  var items = DATA.procAvg.items.map(function(p){ return {nombre:p.nombre, val:p.val, color:barColor(p.val)}; });
+  drawBarChart(s._cv, items);
+  s._bars.innerHTML='';
+  items.forEach(function(it){
+    var row = el('div','bar-row');
+    row.innerHTML = '<span class="name">'+it.nombre+'<\/span><span class="bar-track"><span class="bar-fill" style="background:'+it.color+'"><\/span><\/span><span class="pct" style="color:'+it.color+'">'+fx1(it.val)+'%<\/span>';
+    s._bars.appendChild(row);
+    setTimeout(function(fill,val){ return function(){ fill.style.width = Math.max(2,val)+'%'; }; }(row.querySelector('.bar-fill'), it.val), 80);
+  });
+});
+
+/* ---- 7. Infografía resumen ---- */
+addSlide(function(s){
+  s.appendChild(el('div','slide-head reveal d1','<div><h2>Infografía Resumen<\/h2><p class="sub">Cierre del semestre en una sola vista<\/p><\/div>'));
+  var cols = el('div','two-col reveal d2');
+  var left = el('div','card'); left.style.display='flex'; left.style.flexDirection='column'; left.style.gap='10px';
+  var kpiRow = el('div','grid-4'); left.appendChild(kpiRow);
+  var bars = el('div','bars'); bars.style.marginTop='6px'; left.appendChild(bars);
+  cols.appendChild(left);
+  var right = el('div','side-stack');
+  var topCard = el('div','card'); topCard.innerHTML='<div class="lbl" style="margin-bottom:6px">TOP TIENDAS<\/div>';
+  var topList = el('div'); topCard.appendChild(topList);
+  var botCard = el('div','card'); botCard.innerHTML='<div class="lbl" style="margin-bottom:6px">MEJORA NECESARIA<\/div>';
+  var botList = el('div'); botCard.appendChild(botList);
+  right.appendChild(topCard); right.appendChild(botCard);
+  cols.appendChild(right);
+  s.appendChild(cols);
+  s._kpiRow=kpiRow; s._bars=bars; s._topList=topList; s._botList=botList;
+}, function(s){
+  var d = DATA.infografia;
+  s._kpiRow.innerHTML='';
+  var specs=[{v:fx1(d.globalAvg)+'%',l:'Cumplimiento general'},{v:d.nTiendas,l:'Tiendas analizadas'},{v:d.nMeses,l:'Meses del semestre'},{v:d.nProcesos,l:'Procesos evaluados'}];
+  specs.forEach(function(sp){ s._kpiRow.appendChild(el('div','circle-kpi','<div class="val">'+sp.v+'<\/div><div class="lbl">'+sp.l+'<\/div>')); });
+  s._bars.innerHTML='';
+  DATA.procAvg.items.forEach(function(it){
+    var color=barColor(it.val);
+    var row = el('div','bar-row');
+    row.innerHTML = '<span class="name">'+it.nombre+'<\/span><span class="bar-track"><span class="bar-fill" style="background:'+color+'"><\/span><\/span><span class="pct" style="color:'+color+'">'+fx1(it.val)+'%<\/span>';
+    s._bars.appendChild(row);
+    setTimeout(function(fill,val){ return function(){ fill.style.width=Math.max(2,val)+'%'; }; }(row.querySelector('.bar-fill'), it.val), 80);
+  });
+  s._topList.innerHTML=''; s._botList.innerHTML='';
+  var medals=['🥇','🥈','🥉'];
+  d.top3.forEach(function(r,i){ s._topList.appendChild(el('div','podium-row','<span class="medal">'+medals[i]+'<\/span><span class="name">'+r.nombre+'<\/span><span class="val">'+fx1(r.val)+'%<\/span>')); });
+  d.bot3.forEach(function(r){ s._botList.appendChild(el('div','podium-row','<span class="medal">▼<\/span><span class="name">'+r.nombre+'<\/span><span class="val" style="color:#e35b5b">'+fx1(r.val)+'%<\/span>')); });
+});
+
+/* ============ motor de navegación ============ */
+var current = 0;
+var dotsEl = document.getElementById('dots');
+slides.forEach(function(_,i){
+  var b = el('button','dot'+(i===0?' active':''));
+  b.onclick = function(){ goTo(i); };
+  dotsEl.appendChild(b);
+});
+function goTo(i){
+  if(i<0||i>=slides.length) return;
+  slides[current].classList.remove('active');
+  current = i;
+  var s = slides[current];
+  s.classList.add('active');
+  if(!rendered[current]){ s._render(s); rendered[current]=true; }
+  else if(s._chart){ s._chart.resize(); s._chart.animateIn(); }
+  document.getElementById('curNum').textContent = current+1;
+  dotsEl.querySelectorAll('.dot').forEach(function(dd,di){ dd.classList.toggle('active', di===current); });
+  document.getElementById('prevBtn').disabled = current===0;
+  document.getElementById('nextBtn').disabled = current===slides.length-1;
+}
+document.getElementById('prevBtn').onclick = function(){ goTo(current-1); };
+document.getElementById('nextBtn').onclick = function(){ goTo(current+1); };
+document.addEventListener('keydown', function(e){
+  if(e.key==='ArrowRight') goTo(current+1);
+  if(e.key==='ArrowLeft') goTo(current-1);
+});
+document.getElementById('totNum').textContent = slides.length;
+document.getElementById('eyebrow').textContent = DATA.meta.pie;
+goTo(0);
+window.addEventListener('resize', function(){ var s=slides[current]; if(s._chart){ s._chart.resize(); s._chart.render(1); } });
+<\/script>
+</body>
+</html>`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3004,7 +3676,10 @@ async function generateDashboard() {
 
     const pres = await buildPptx(data);
     generatedPres = pres;
+    generatedData = data;
+    generatedHtmlDeck = null; // se arma bajo demanda si el usuario elige la Opción 2
     fileName = `${rawFileName}_${label.replace(/[^a-zA-Z0-9_\-]/g,'_')}_Dashboard.pptx`;
+    htmlFileName = `${rawFileName}_${label.replace(/[^a-zA-Z0-9_\-]/g,'_')}_Dashboard.html`;
 
     log('✅','Diapositivas generadas (7)','done');
     log('🎨','Aplicando estilos…','active'); setProgress(75);
@@ -3053,19 +3728,21 @@ document.getElementById('filterValue').addEventListener('change', updateFilterDe
 document.getElementById('filterStore').addEventListener('change', updateFilterDesc);
 document.getElementById('filterProcess').addEventListener('change', updateFilterDesc);
 
-// Descarga robusta del .pptx. Dentro del dashboard, el generador vive en un
-// iframe `srcdoc` (origen about:srcdoc); en ese contexto la descarga directa
-// de un blob puede fallar o guardar un archivo ilegible. Por eso, si estamos
-// embebidos, le pasamos el archivo ya armado al dashboard padre (que sí tiene
-// un origen real) para que él lo descargue. Fuera del dashboard, descarga local.
+// Descarga robusta del archivo generado (PowerPoint u HTML). Dentro del
+// dashboard, el generador vive en un iframe `srcdoc` (origen about:srcdoc);
+// en ese contexto la descarga directa de un blob puede fallar o guardar un
+// archivo ilegible. Por eso, si estamos embebidos, le pasamos el archivo ya
+// armado al dashboard padre (que sí tiene un origen real) para que él lo
+// descargue. Fuera del dashboard, descarga local.
 const PPTX_MIME='application/vnd.openxmlformats-officedocument.presentationml.presentation';
-// Reconstruye el .pptx desde base64. Base64 es texto puro: no se corrompe al
-// viajar por postMessage entre el iframe y el dashboard (a diferencia de un Blob).
-function b64ToBlobPptx(b64){
+const HTML_MIME='text/html';
+// Reconstruye un binario desde base64. Base64 es texto puro: no se corrompe
+// al viajar por postMessage entre el iframe y el dashboard (a diferencia de un Blob).
+function b64ToBlob(b64, mime){
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: PPTX_MIME });
+  return new Blob([bytes], { type: mime });
 }
 function descargarBlobLocal(blob, nombre){
   const url = URL.createObjectURL(blob);
@@ -3080,19 +3757,55 @@ async function descargarPptx(pres, nombre){
   // haga la descarga sin corromper los bytes. Fuera del dashboard, descarga local.
   const b64 = await pres.write({ outputType:'base64' });
   if (EMBEDDED && window.parent && window.parent !== window) {
-    try { window.parent.postMessage({ type:'gen-download', b64, fileName:nombre }, '*'); return; }
+    try { window.parent.postMessage({ type:'gen-download', b64, fileName:nombre, mime:PPTX_MIME }, '*'); return; }
     catch(e){ /* si el padre no puede recibirlo, caemos a descarga local */ }
   }
-  descargarBlobLocal(b64ToBlobPptx(b64), nombre);
+  descargarBlobLocal(b64ToBlob(b64, PPTX_MIME), nombre);
 }
+async function descargarHtml(html, nombre){
+  // El HTML es texto, así que viaja directo por postMessage (sin pasar por
+  // base64) sin riesgo de corromperse.
+  if (EMBEDDED && window.parent && window.parent !== window) {
+    try { window.parent.postMessage({ type:'gen-download', html, fileName:nombre, mime:HTML_MIME }, '*'); return; }
+    catch(e){ /* si el padre no puede recibirlo, caemos a descarga local */ }
+  }
+  descargarBlobLocal(new Blob([html], { type: HTML_MIME }), nombre);
+}
+
+// Selector "Opción 1 (PowerPoint) / Opción 2 (HTML animado)"
+let selectedDownloadFormat = 'pptx';
+document.querySelectorAll('.format-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    selectedDownloadFormat = btn.dataset.format;
+    document.querySelectorAll('.format-opt').forEach(b => b.classList.toggle('active', b===btn));
+    const downloadBtn = document.getElementById('downloadBtn');
+    const hint = document.getElementById('formatHint');
+    if (selectedDownloadFormat === 'html') {
+      downloadBtn.innerHTML = '<span>⬇️</span> Descargar Dashboard en HTML';
+      hint.textContent = 'Página animada e interactiva — se abre haciendo doble clic en cualquier navegador, no requiere PowerPoint.';
+    } else {
+      downloadBtn.innerHTML = '<span>⬇️</span> Descargar Dashboard en PowerPoint';
+      hint.textContent = 'Archivo .pptx editable en PowerPoint.';
+    }
+  });
+});
+
 document.getElementById('downloadBtn').addEventListener('click', async () => {
   if (!generatedPres) return;
   const btn = document.getElementById('downloadBtn');
+  const originalLabel = btn.innerHTML;
   btn.textContent = '⏳ Generando archivo…';
   btn.disabled = true;
-  try { await descargarPptx(generatedPres, fileName); }
+  try {
+    if (selectedDownloadFormat === 'html') {
+      if (!generatedHtmlDeck) generatedHtmlDeck = buildHtmlDeck(generatedData);
+      await descargarHtml(generatedHtmlDeck, htmlFileName);
+    } else {
+      await descargarPptx(generatedPres, fileName);
+    }
+  }
   catch(e) { console.error(e); }
-  btn.innerHTML = '<span>⬇️</span> Descargar Dashboard en PowerPoint';
+  btn.innerHTML = originalLabel;
   btn.disabled = false;
 });
 
@@ -3104,6 +3817,8 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   document.getElementById('fileInput').value = '';
   document.getElementById('forceOverwrite').checked = false;
   generatedPres = null;
+  generatedData = null;
+  generatedHtmlDeck = null;
   rawWorkbook = null;
   rawFileName = '';
   filterMesesSel = new Set(); filterMesesCustom = false;
